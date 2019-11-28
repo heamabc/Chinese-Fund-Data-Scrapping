@@ -1,0 +1,270 @@
+# -*- coding: utf-8 -*-
+import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+from io import StringIO
+import os
+from datetime import date
+import time
+from bs4 import BeautifulSoup
+import pandas as pd
+import numpy as np
+from io import StringIO
+import warnings
+from selenium import webdriver
+import smtplib 
+from email.mime.multipart import MIMEMultipart 
+from email.mime.text import MIMEText 
+from email.mime.base import MIMEBase 
+from email import encoders 
+
+warnings.simplefilter(action='ignore', category=FutureWarning)
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+# To run the program, run this line in the bash: ./job.sh
+
+def handler(event, context):
+    # Funds part
+    '''
+    fund_name = fund_name_function()
+    NAV = NAV_function()
+    company = company_function()
+    
+    fund_output = pd.merge(pd.Series(fund_name, name='name'), NAV, how='outer', left_on='name', right_on='name')
+    fund_output = fund_output.drop_duplicates('code')
+    fund_output = fund_output.merge(company, how='outer', left_on='code', right_on='code')
+    fund_output['fund'] = np.where(fund_output['fund'].isna(), fund_output['name'], fund_output['fund'])
+    fund_output['number_of_unit'] = np.where(fund_output['number_of_unit'] == 0, np.nan, fund_output['number_of_unit'])
+    fund_output = fund_output.drop('name', axis=1)
+    '''
+
+    
+    #PBOC = PBOC_function()
+    SAFE = SAFE_function()
+    #fund_announcement = fund_announcement_function(date.today().strftime("%Y-%m-%d")) # No need to compare histroical
+    #ndustry_news = industry_news_function() # No need to compare histroical
+    
+    
+    #PBOC.to_csv('PBOC.csv')
+    #SAFE.to_csv('SAFE.csv')
+    #fund_announcement.to_csv('announcement_csv')
+    #industry_news.to_csv('industry.csv')
+    
+    news_output = pd.concat([industry_news,fund_announcement], ignore_index=True)
+    news_output = pd.concat([news_output,SAFE], ignore_index=True)
+    
+    # Send Email
+    s = StringIO()
+    SAFE.to_csv(s)
+    
+    send_email(s, 'funds_data.csv')
+    
+    return 
+    
+def fund_name_function():
+    #return list object
+    url = 'http://money.finance.sina.com.cn/fund/view/vNewFund_FundListings.php'
+    page = requests.get(url)
+    
+    soup = BeautifulSoup(page.content,'html.parser', fromEncoding="gb18030")
+    soup = soup.find_all("div", id="sort")[0]
+    soup = soup.find_all('a', title=True)
+    
+    fund_name = [a['title'][:-8] for a in soup]
+    return fund_name
+    
+def industry_news_function():
+    url = 'http://finance.sina.com.cn/roll/index.d.html?cid=56948&page=1'
+    page = requests.get(url)
+    
+    soup = BeautifulSoup(page.content, 'html.parser', fromEncoding="gb18030")
+    soup = soup.find_all("div", id="Main")[0]
+    soup = soup.find_all('div', class_="listBlk")[0]
+    
+    date = soup.find_all('span')
+    date = ['2019-' + ele.contents[0][:-6].replace('(','').replace(')','').replace('月','-').replace('日','') for ele in date if '(' in ele.contents[0]]
+    
+    soup = soup.find_all('a', target="_blank")
+    
+    industry_news = [a.contents[0] for a in soup]
+    link = [a['href'] for a in soup]
+    output = pd.DataFrame({'news':industry_news, 'link':link})
+    output['date'] = date
+    output['news_type'] = 'Industry News'
+    return output
+    
+def fund_announcement_function(date):
+    #date = 'YYYY-MM-DD'
+    url = 'http://biz.finance.sina.com.cn/fundinfo/share/jjgg_search.php?content={}&type=same_date'.format(date)
+    page = requests.get(url)
+    
+    soup = BeautifulSoup(page.content, 'html.parser', fromEncoding="gb18030")
+    big_soup = soup.find_all("table", class_="datalist")[0]
+    
+    soup = big_soup.find_all('a')
+    
+    fund_name = []
+    heading = []
+    link = []
+    for i in range(len(soup)):
+        if i%4 == 0:
+            fund_name.append(soup[i].contents[0])
+        elif (i-2)%4 == 0:
+            heading.append(soup[i].contents[0])
+            link.append(soup[i]['href'])
+    
+    soup = big_soup.find_all('th', style="border-right:1px #ccc solid;")
+    type_list = []
+    for a in soup:
+        if isinstance(a.contents[0], str):
+            type_list.append(a.contents[0])
+    
+    output = pd.DataFrame({'fund':fund_name, 'news':heading, 'announcement_type':type_list, 'link':link})
+    output['date'] = date
+    output['news_type'] = 'Fund Announcement'
+    return output
+    
+def NAV_function():
+    url = 'http://vip.stock.finance.sina.com.cn/fund_center/index.html#jjgmall'
+    driver = webdriver.PhantomJS(r"/home/ubuntu/environment/~/.local/share/virtualenvs/environment-_B8sq8XY/lib/python3.6/site-packages/phantomjs_2.1.1", service_log_path=os.path.devnull)
+    driver.get(url)
+    
+    output = pd.DataFrame()
+    while True:
+        table = driver.find_element_by_tag_name('tbody')
+        
+        #make the source text to list of list
+        table = driver.find_element_by_tag_name('tbody')
+        table = table.text.split("\n")
+        table = [ele.split(" ") for ele in table]
+    
+        #transform list of list to table
+        tmp_output = pd.DataFrame(table)
+        tmp_output = tmp_output.iloc[:,1:8]
+        tmp_output.columns=(['code', 'name', 'per_unit_NAV', 'number_of_unit', 'recent_unit', 'inception_ate', 'manager'])
+        
+        output = pd.concat([output, tmp_output], ignore_index=True)
+        
+        #clicking next page and sleep
+        try:
+            next_page = driver.find_element_by_link_text('下一页')
+            next_page.location_once_scrolled_into_view
+            next_page.click()
+        except:
+            break
+        
+        time.sleep(1)
+    
+        output = output.drop(['recent_unit'], axis=1)
+        output.loc[output['number_of_unit'] == '--', 'number_of_unit'] = 0
+        output.loc[output['per_unit_NAV'] == '--', 'number_of_unit'] = 0
+        output['AUM'] = output['per_unit_NAV'].str.replace(',', '').astype(float) * output['number_of_unit'].str.replace(',', '').astype(float)
+    return output
+    
+def company_function():
+    url = 'http://money.finance.sina.com.cn/fund/view/vNewFund_FundCompanyListings.php'
+    page = requests.get(url)
+    
+    soup = BeautifulSoup(page.content,'html.parser', fromEncoding="gb18030")
+    tables = soup.find_all("table", width="100%")
+    companies = soup.find_all('div', class_='s11')
+    
+    output = pd.DataFrame()
+    for i in range(len(tables)):
+        company = companies[i].text
+        fund = tables[i].find_all('a', title=True)
+        tmp_output = pd.DataFrame([[company] * len(fund), [ele.text for ele in fund], [ele['href'] for ele in fund]]).T
+        output = pd.concat([output,tmp_output], ignore_index=True)
+        
+    output.columns=['company', 'fund', 'link']
+    output['code'] = output['fund'].str[-7:-1]
+    output['fund'] = output['fund'].str[:-8]
+    return output
+    
+def PBOC_function():
+    law = 'http://www.pbc.gov.cn/tiaofasi/144941/144951/index.html'
+    administration = 'http://www.pbc.gov.cn/tiaofasi/144941/144953/index.html'
+    rules = 'http://www.pbc.gov.cn/tiaofasi/144941/144957/index.html'
+    documentation = 'http://www.pbc.gov.cn/tiaofasi/144941/3581332/index.html'
+    others = 'http://www.pbc.gov.cn/tiaofasi/144941/144959/index.html'
+    urls = (law, administration, rules, documentation, others)
+    
+    output = pd.DataFrame()
+    for url in urls:
+        driver = webdriver.PhantomJS(r'/home/ubuntu/environment/~/.local/share/virtualenvs/environment-_B8sq8XY/lib/python3.6/site-packages/phantomjs_2.1.1', service_log_path=os.path.devnull)
+        driver.get(url)
+        
+        time.sleep(5)
+        driver.refresh()
+        
+        table = driver.find_element_by_id('r_con')
+        news = table.text.split('\n')
+        
+        news = news[:-2]
+        news[0] = news[0].strip()
+        date = [ele[-10:] for ele in news]
+        
+        soup = BeautifulSoup(driver.page_source, 'html.parser', fromEncoding="gb18030")
+        link = soup.find_all('td', align='left', height='22')
+        link = ['http://www.pbc.gov.cn' + ele.contents[0].contents[0]['href'] for ele in link]
+        
+        tmp_output = pd.DataFrame([news, date, link]).T
+        tmp_output.columns = ['news', 'date', 'link']
+        output = pd.concat([output, tmp_output], ignore_index=True)
+    
+    output['news_type'] = 'PBOC'
+    return output
+    
+def SAFE_function():
+    url = 'http://www.safe.gov.cn/safe/zcfg/index.html'
+    page = requests.get(url)
+    
+    soup = BeautifulSoup(page.content, 'html.parser', fromEncoding="gb18030")
+    soup = soup.find_all("div", class_="main_m")[0]
+    soup = soup.find_all("div", class_="right_list")[0]
+    dates = [ele.contents[0] for ele in soup.find_all('dd')]
+    soup = soup.find_all('a', title=True, href=True)
+    
+    output = {}
+    for a in soup:
+        output[a['title']] = 'www.safe.gov.cn/' + a['href']
+    
+    output.pop('下一页', None)
+    output.pop('尾页', None )
+    
+    output = pd.DataFrame(output.items(), columns=['news','link'])
+    output['date'] = dates
+    output['news_type'] = 'SAFE'
+    return output
+    
+def send_email(file, file_name):
+    fromaddr = "allianznewsproject@gmail.com"
+    toaddr = "heystudyhey@gmail.com"
+    
+    msg = MIMEMultipart() 
+    msg['From'] = fromaddr 
+    msg['To'] = toaddr 
+    
+    msg['Subject'] = "Testing"
+    body = "hihihihi"
+    msg.attach(MIMEText(body, 'plain')) 
+    
+    filename = file_name
+    attachment = file
+      
+    p = MIMEBase('application', 'octet-stream') 
+    p.set_payload(attachment.getvalue().encode('utf-8')) 
+    encoders.encode_base64(p) 
+    p.add_header('Content-Disposition', "attachment; filename= %s" % filename) 
+    msg.attach(p) 
+    
+    s = smtplib.SMTP('smtp.gmail.com', 587) 
+    s.starttls() 
+    s.login(fromaddr, "heyheycantakea")
+    
+    text = msg.as_string() 
+    s.sendmail(fromaddr, toaddr, text) 
+    s.quit() 
+    return
+
+if __name__== "__main__":
+    handler(0,0)
