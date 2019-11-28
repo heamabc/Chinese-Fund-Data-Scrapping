@@ -23,8 +23,8 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 # To run the program, run this line in the bash: ./job.sh
 
 def handler(event, context):
+    
     # Funds part
-    '''
     fund_name = fund_name_function()
     NAV = NAV_function()
     company = company_function()
@@ -35,28 +35,34 @@ def handler(event, context):
     fund_output['fund'] = np.where(fund_output['fund'].isna(), fund_output['name'], fund_output['fund'])
     fund_output['number_of_unit'] = np.where(fund_output['number_of_unit'] == 0, np.nan, fund_output['number_of_unit'])
     fund_output = fund_output.drop('name', axis=1)
-    '''
-
     
-    #PBOC = PBOC_function()
+    
+    # News part
+    industry_news = industry_news_function()
+    fund_announcement = fund_announcement_function(date.today().strftime('%Y-%m-%d'))
     SAFE = SAFE_function()
-    #fund_announcement = fund_announcement_function(date.today().strftime("%Y-%m-%d")) # No need to compare histroical
-    #ndustry_news = industry_news_function() # No need to compare histroical
-    
-    
-    #PBOC.to_csv('PBOC.csv')
-    #SAFE.to_csv('SAFE.csv')
-    #fund_announcement.to_csv('announcement_csv')
-    #industry_news.to_csv('industry.csv')
+    PBOC = PBOC_function()
     
     news_output = pd.concat([industry_news,fund_announcement], ignore_index=True)
-    news_output = pd.concat([news_output,SAFE], ignore_index=True)
+    news_output = pd.concat([news_output, SAFE], ignore_index=True)
+    news_output = pd.concat([news_output, PBOC], ignore_index = True)
+    
     
     # Send Email
-    s = StringIO()
-    SAFE.to_csv(s)
+    file_list = []
+    file_name_list = []
     
-    send_email(s, 'funds_data.csv')
+    s = StringIO()
+    fund_output.to_csv(s)
+    file_list.append(s)
+    file_name_list.append('funds_data.csv')
+    
+    s = StringIO()
+    news_output.to_csv(s)
+    file_list.append(s)
+    file_name_list.append('news_data.csv')
+    
+    send_email(file_list, file_name_list)
     
     return 
     
@@ -87,9 +93,9 @@ def industry_news_function():
     
     industry_news = [a.contents[0] for a in soup]
     link = [a['href'] for a in soup]
-    output = pd.DataFrame({'news':industry_news, 'link':link})
-    output['date'] = date
-    output['news_type'] = 'Industry News'
+    output = pd.DataFrame({'News':industry_news, 'Link':link})
+    output['Date'] = date
+    output['News Type'] = 'Industry News'
     return output
     
 def fund_announcement_function(date):
@@ -118,9 +124,9 @@ def fund_announcement_function(date):
         if isinstance(a.contents[0], str):
             type_list.append(a.contents[0])
     
-    output = pd.DataFrame({'fund':fund_name, 'news':heading, 'announcement_type':type_list, 'link':link})
-    output['date'] = date
-    output['news_type'] = 'Fund Announcement'
+    output = pd.DataFrame({'Related Fund':fund_name, 'News':heading, 'Announcement Type':type_list, 'Link':link})
+    output['Date'] = date
+    output['News Type'] = 'Fund Announcement'
     return output
     
 def NAV_function():
@@ -208,10 +214,11 @@ def PBOC_function():
         link = ['http://www.pbc.gov.cn' + ele.contents[0].contents[0]['href'] for ele in link]
         
         tmp_output = pd.DataFrame([news, date, link]).T
-        tmp_output.columns = ['news', 'date', 'link']
+        tmp_output.columns = ['News', 'Date', 'Link']
         output = pd.concat([output, tmp_output], ignore_index=True)
     
-    output['news_type'] = 'PBOC'
+    output.dropna()
+    output['News Type'] = 'PBOC'
     return output
     
 def SAFE_function():
@@ -231,12 +238,12 @@ def SAFE_function():
     output.pop('下一页', None)
     output.pop('尾页', None )
     
-    output = pd.DataFrame(output.items(), columns=['news','link'])
-    output['date'] = dates
-    output['news_type'] = 'SAFE'
+    output = pd.DataFrame(output.items(), columns=['News','Link'])
+    output['Date'] = dates
+    output['News Type'] = 'SAFE'
     return output
     
-def send_email(file, file_name):
+def send_email(file_list, file_name_list):
     fromaddr = "allianznewsproject@gmail.com"
     toaddr = "heystudyhey@gmail.com"
     
@@ -248,14 +255,15 @@ def send_email(file, file_name):
     body = "hihihihi"
     msg.attach(MIMEText(body, 'plain')) 
     
-    filename = file_name
-    attachment = file
-      
-    p = MIMEBase('application', 'octet-stream') 
-    p.set_payload(attachment.getvalue().encode('utf-8')) 
-    encoders.encode_base64(p) 
-    p.add_header('Content-Disposition', "attachment; filename= %s" % filename) 
-    msg.attach(p) 
+    for i in range(len(file_list)):
+        filename = file_name_list[i]
+        attachment = file_list[i]
+    
+        p = MIMEBase('application', 'octet-stream') 
+        p.set_payload(attachment.getvalue().encode('utf-8')) 
+        encoders.encode_base64(p) 
+        p.add_header('Content-Disposition', "attachment; filename= %s" % filename) 
+        msg.attach(p) 
     
     s = smtplib.SMTP('smtp.gmail.com', 587) 
     s.starttls() 
