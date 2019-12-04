@@ -1,64 +1,89 @@
 # -*- coding: utf-8 -*-
+# By Fergus Kwan. Phone no. : +852 61255752, email :takhei611@gmail.com
+
+# web scrapping
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
-from io import StringIO
-import os
-from datetime import date
-import time
 from bs4 import BeautifulSoup
+from selenium import webdriver
+
+# data transformation
 import pandas as pd
 import numpy as np
-from io import StringIO
+
+# misc
 import warnings
-from selenium import webdriver
+from io import StringIO
+import os
+import time
+from datetime import date
+
+# ending email
 import smtplib 
 from email.mime.multipart import MIMEMultipart 
 from email.mime.text import MIMEText 
 from email.mime.base import MIMEBase 
 from email import encoders 
 
+# ignore warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-# To run the program, run this line in the bash: ./job.sh
-
+# main function
 def handler(event, context):
     
     # Funds part
+    print('fund name...')
     fund_name = fund_name_function()
+    print('NAV...')
     NAV = NAV_function()
+    print('Company...')
     company = company_function()
     
-    fund_output = pd.merge(pd.Series(fund_name, name='name'), NAV, how='outer', left_on='name', right_on='name')
-    fund_output = fund_output.drop_duplicates('code')
-    fund_output = fund_output.merge(company, how='outer', left_on='code', right_on='code')
-    fund_output['fund'] = np.where(fund_output['fund'].isna(), fund_output['name'], fund_output['fund'])
-    fund_output['number_of_unit'] = np.where(fund_output['number_of_unit'] == 0, np.nan, fund_output['number_of_unit'])
-    fund_output = fund_output.drop('name', axis=1)
+    # merging the data together
+    fund_output = NAV.merge(fund_name,how='outer', on='code')
+    fund_output = fund_output.merge(company, how='left', on='code') # use left because the funds in fund_output are all the public funds, but right has other funds
+    fund_output['fund'] = np.where(fund_output['name_x'].notnull(), fund_output['name_x'], np.where(fund_output['name_y'].notnull(), fund_output['name_y'], fund_output['fund']))
+    fund_output['link'] = np.where(fund_output['link_x'].notnull(), fund_output['link_x'], fund_output['link_y'])
     
+    # renaming columns and filtering useful columns
+    fund_output = fund_output.rename(columns={'code':'Code', 'inception_ate':'Inception Date', 'manager':'Manager', 'number_of_unit':'Number Of Unit', 'per_unit_NAV':'Per Unit NAV', 'recent_unit':'Recent Unit', 'company':'Company','fund':'Fund','link':'Link'})
+    fund_output = fund_output[['Code', 'Fund', 'Inception Date', 'Per Unit NAV', 'Number Of Unit', 'AUM', 'Manager', 'Company', 'Link']]
+    fund_output[['Per Unit NAV', 'Number Of Unit', 'AUM']] = fund_output[['Per Unit NAV', 'Number Of Unit', 'AUM']].fillna(0,axis=1)
+    fund_output.sort_values(by=['Code'], inplace=True)
+    
+    print('Fund Done')
     
     # News part
+    print('industry news...')
     industry_news = industry_news_function()
+    print('fund announcement...')
     fund_announcement = fund_announcement_function(date.today().strftime('%Y-%m-%d'))
+    print('SAFE...')
     SAFE = SAFE_function()
+    print('PBOC...')
     PBOC = PBOC_function()
     
+    # mergin data
     news_output = pd.concat([industry_news,fund_announcement], ignore_index=True)
     news_output = pd.concat([news_output, SAFE], ignore_index=True)
     news_output = pd.concat([news_output, PBOC], ignore_index = True)
     
+    news_output = news_output[['Date', 'News', 'News Type', 'Related Fund', 'Link']]
+    
+    print('News Done')
     
     # Send Email
     file_list = []
     file_name_list = []
     
     s = StringIO()
-    fund_output.to_csv(s)
+    fund_output.to_excel(s, encoding='utf-8')
     file_list.append(s)
     file_name_list.append('funds_data.csv')
     
     s = StringIO()
-    news_output.to_csv(s)
+    news_output.to_excel(s, encoding='utf-8')
     file_list.append(s)
     file_name_list.append('news_data.csv')
     
@@ -67,39 +92,53 @@ def handler(event, context):
     return 
     
 def fund_name_function():
-    #return list object
+    # To take the name of all public funds in China to ensure that we do not miss any funds
+    # return code, name and link
+
     url = 'http://money.finance.sina.com.cn/fund/view/vNewFund_FundListings.php'
     page = requests.get(url)
     
     soup = BeautifulSoup(page.content,'html.parser', fromEncoding="gb18030")
-    soup = soup.find_all("div", id="sort")[0]
+    soup = soup.find_all("div", id="s2")[0]
     soup = soup.find_all('a', title=True)
+    # The last one is useless
+    soup = soup[:-1]
     
+    code = [a['title'][-7:-1] for a in soup]
     fund_name = [a['title'][:-8] for a in soup]
-    return fund_name
+    link = [a['href'] for a in soup]
+    
+    output = pd.DataFrame([code, fund_name,link]).T
+    output.columns = ['code','name','link']
+    
+    return output
     
 def industry_news_function():
+    # To take industry news of public funds in China
+    # return date, news, link, news type
     url = 'http://finance.sina.com.cn/roll/index.d.html?cid=56948&page=1'
     page = requests.get(url)
     
     soup = BeautifulSoup(page.content, 'html.parser', fromEncoding="gb18030")
-    soup = soup.find_all("div", id="Main")[0]
-    soup = soup.find_all('div', class_="listBlk")[0]
+    soup = soup.find_all('li')
+    soup = [ele for ele in soup if ele.span != None]
     
-    date = soup.find_all('span')
-    date = ['2019-' + ele.contents[0][:-6].replace('(','').replace(')','').replace('月','-').replace('日','') for ele in date if '(' in ele.contents[0]]
-    
-    soup = soup.find_all('a', target="_blank")
-    
-    industry_news = [a.contents[0] for a in soup]
-    link = [a['href'] for a in soup]
-    output = pd.DataFrame({'News':industry_news, 'Link':link})
-    output['Date'] = date
-    output['News Type'] = 'Industry News'
+    industry_news = []
+    dates = []
+    link = []
+    for ele in soup:
+        industry_news.append(ele.contents[0].contents[0])
+        dates.append('2019-' + ele.span.contents[0][1:6].replace('月','-'))
+        link.append(soup[0].contents[0]['href'])
+        
+    output = pd.DataFrame({'news':industry_news, 'link':link, 'date':dates})
+    output['news_type'] = 'Industry News'
     return output
     
 def fund_announcement_function(date):
-    #date = 'YYYY-MM-DD'
+    # To take all the fund announcement by date
+    # date = 'YYYY-MM-DD'
+    # return date, fund_announcement, related fund, link, news_type
     url = 'http://biz.finance.sina.com.cn/fundinfo/share/jjgg_search.php?content={}&type=same_date'.format(date)
     page = requests.get(url)
     
@@ -124,29 +163,28 @@ def fund_announcement_function(date):
         if isinstance(a.contents[0], str):
             type_list.append(a.contents[0])
     
-    output = pd.DataFrame({'Related Fund':fund_name, 'News':heading, 'Announcement Type':type_list, 'Link':link})
+    output = pd.DataFrame({'Related Fund':fund_name, 'News':heading, 'Link':link})
     output['Date'] = date
-    output['News Type'] = 'Fund Announcement'
+    output['News Type'] = 'Fund Announcement - ' + pd.Series(type_list)
     return output
     
 def NAV_function():
+    # To take the name, code, AUM (in millions), NAV, number of units, manager, inception date and link of the funds
     url = 'http://vip.stock.finance.sina.com.cn/fund_center/index.html#jjgmall'
     driver = webdriver.PhantomJS(r"/home/ubuntu/environment/~/.local/share/virtualenvs/environment-_B8sq8XY/lib/python3.6/site-packages/phantomjs_2.1.1", service_log_path=os.path.devnull)
     driver.get(url)
     
     output = pd.DataFrame()
-    while True:
-        table = driver.find_element_by_tag_name('tbody')
-        
+    while True:        
         #make the source text to list of list
         table = driver.find_element_by_tag_name('tbody')
         table = table.text.split("\n")
         table = [ele.split(" ") for ele in table]
     
-        #transform list of list to table
+        #transform list of list of data of the funds to table
         tmp_output = pd.DataFrame(table)
         tmp_output = tmp_output.iloc[:,1:8]
-        tmp_output.columns=(['code', 'name', 'per_unit_NAV', 'number_of_unit', 'recent_unit', 'inception_ate', 'manager'])
+        tmp_output.columns=(['code', 'name', 'per_unit_NAV', 'number_of_unit', 'AUM', 'inception_ate', 'manager'])
         
         output = pd.concat([output, tmp_output], ignore_index=True)
         
@@ -156,17 +194,20 @@ def NAV_function():
             next_page.location_once_scrolled_into_view
             next_page.click()
         except:
+            #If there is not 'next page' in the web to click, we will exit the loop.
             break
         
         time.sleep(1)
-    
-        output = output.drop(['recent_unit'], axis=1)
-        output.loc[output['number_of_unit'] == '--', 'number_of_unit'] = 0
-        output.loc[output['per_unit_NAV'] == '--', 'number_of_unit'] = 0
-        output['AUM'] = output['per_unit_NAV'].str.replace(',', '').astype(float) * output['number_of_unit'].str.replace(',', '').astype(float)
+
+    output['number_of_unit'] = np.where(output['number_of_unit'] == '--', 0, output['number_of_unit'])
+    output['per_unit_NAV'] = np.where(output['per_unit_NAV'] == '--', 0, output['per_unit_NAV'])
+    output['AUM'] = np.where(output['AUM'] == '--', 0, output['AUM'].str.replace(',','').astype(int) * 100)
     return output
     
 def company_function():
+    # To match the company in which all the funds belong to
+    # return code, company, fund name, link
+    
     url = 'http://money.finance.sina.com.cn/fund/view/vNewFund_FundCompanyListings.php'
     page = requests.get(url)
     
@@ -174,6 +215,7 @@ def company_function():
     tables = soup.find_all("table", width="100%")
     companies = soup.find_all('div', class_='s11')
     
+    # Take all the codes and name of funds to ensure that we do not miss any funds
     output = pd.DataFrame()
     for i in range(len(tables)):
         company = companies[i].text
@@ -187,19 +229,25 @@ def company_function():
     return output
     
 def PBOC_function():
+    # To take the reports and publications published by PBOC
+    # return news, link, date, news_type
     law = 'http://www.pbc.gov.cn/tiaofasi/144941/144951/index.html'
     administration = 'http://www.pbc.gov.cn/tiaofasi/144941/144953/index.html'
     rules = 'http://www.pbc.gov.cn/tiaofasi/144941/144957/index.html'
     documentation = 'http://www.pbc.gov.cn/tiaofasi/144941/3581332/index.html'
     others = 'http://www.pbc.gov.cn/tiaofasi/144941/144959/index.html'
     urls = (law, administration, rules, documentation, others)
+    names = ('国家法律', '行政法规', '部门规章', '主要有效规范性文件', '其他文件')
     
     output = pd.DataFrame()
-    for url in urls:
+    for i in range(len(urls)):
+        url = urls[i]
+        name = names[i]
+        
         driver = webdriver.PhantomJS(r'/home/ubuntu/environment/~/.local/share/virtualenvs/environment-_B8sq8XY/lib/python3.6/site-packages/phantomjs_2.1.1', service_log_path=os.path.devnull)
         driver.get(url)
         
-        time.sleep(5)
+        time.sleep(10)
         driver.refresh()
         
         table = driver.find_element_by_id('r_con')
@@ -215,13 +263,15 @@ def PBOC_function():
         
         tmp_output = pd.DataFrame([news, date, link]).T
         tmp_output.columns = ['News', 'Date', 'Link']
+        tmp_output['News Type'] = 'PBOC - ' + name
         output = pd.concat([output, tmp_output], ignore_index=True)
     
     output.dropna()
-    output['News Type'] = 'PBOC'
     return output
     
 def SAFE_function():
+    # To take the reports and publications published by SAFE
+    # return news, link, date, news_type
     url = 'http://www.safe.gov.cn/safe/zcfg/index.html'
     page = requests.get(url)
     
@@ -244,15 +294,15 @@ def SAFE_function():
     return output
     
 def send_email(file_list, file_name_list):
-    fromaddr = "allianznewsproject@gmail.com"
-    toaddr = "heystudyhey@gmail.com"
+    fromaddr = "" insert your receiver email here
+    toaddr = "" # insert your sender email here
     
     msg = MIMEMultipart() 
     msg['From'] = fromaddr 
     msg['To'] = toaddr 
     
-    msg['Subject'] = "Testing"
-    body = "hihihihi"
+    msg['Subject'] = "Funds and News data from Echo Kwan CUHK"
+    body = ""
     msg.attach(MIMEText(body, 'plain')) 
     
     for i in range(len(file_list)):
@@ -267,7 +317,7 @@ def send_email(file_list, file_name_list):
     
     s = smtplib.SMTP('smtp.gmail.com', 587) 
     s.starttls() 
-    s.login(fromaddr, "heyheycantakea")
+    s.login(fromaddr, "") # insert your sender email password
     
     text = msg.as_string() 
     s.sendmail(fromaddr, toaddr, text) 
