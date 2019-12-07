@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# By Fergus Kwan. Phone no. : +852 61255752, email :takhei611@gmail.com
+# By Echo Kwan. Phone no. : 61255752, email :takhei611@gmail.com
 
 # web scrapping
 import requests
@@ -29,6 +29,8 @@ from email import encoders
 warnings.simplefilter(action='ignore', category=FutureWarning)
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
+# To run the program, run this line in the bash: ./job.sh
+
 # main function
 def handler(event, context):
     
@@ -46,7 +48,6 @@ def handler(event, context):
     fund_output['fund'] = np.where(fund_output['name_x'].notnull(), fund_output['name_x'], np.where(fund_output['name_y'].notnull(), fund_output['name_y'], fund_output['fund']))
     fund_output['link'] = np.where(fund_output['link_x'].notnull(), fund_output['link_x'], fund_output['link_y'])
     
-    # renaming columns and filtering useful columns
     fund_output = fund_output.rename(columns={'code':'Code', 'inception_ate':'Inception Date', 'manager':'Manager', 'number_of_unit':'Number Of Unit', 'per_unit_NAV':'Per Unit NAV', 'recent_unit':'Recent Unit', 'company':'Company','fund':'Fund','link':'Link'})
     fund_output = fund_output[['Code', 'Fund', 'Inception Date', 'Per Unit NAV', 'Number Of Unit', 'AUM', 'Manager', 'Company', 'Link']]
     fund_output[['Per Unit NAV', 'Number Of Unit', 'AUM']] = fund_output[['Per Unit NAV', 'Number Of Unit', 'AUM']].fillna(0,axis=1)
@@ -64,7 +65,6 @@ def handler(event, context):
     print('PBOC...')
     PBOC = PBOC_function()
     
-    # mergin data
     news_output = pd.concat([industry_news,fund_announcement], ignore_index=True)
     news_output = pd.concat([news_output, SAFE], ignore_index=True)
     news_output = pd.concat([news_output, PBOC], ignore_index = True)
@@ -78,12 +78,12 @@ def handler(event, context):
     file_name_list = []
     
     s = StringIO()
-    fund_output.to_excel(s, encoding='utf-8')
+    fund_output.to_csv(s, encoding='utf-8', index=False)
     file_list.append(s)
     file_name_list.append('funds_data.csv')
     
     s = StringIO()
-    news_output.to_excel(s, encoding='utf-8')
+    news_output.to_csv(s, encoding='utf-8', index=False)
     file_list.append(s)
     file_name_list.append('news_data.csv')
     
@@ -293,9 +293,53 @@ def SAFE_function():
     output['News Type'] = 'SAFE'
     return output
     
+def IgnitesAsia():
+    url = 'https://www.ignitesasia.com/'
+    driver = webdriver.PhantomJS(r'/home/ubuntu/environment/~/.local/share/virtualenvs/environment-_B8sq8XY/lib/python3.6/site-packages/phantomjs_2.1.1', service_log_path=os.path.devnull)
+    driver.get(url)
+
+    login = driver.find_elements_by_class_name('btn')
+    login = login[3]
+    login.click()
+
+    time.sleep(5)
+
+    username = driver.find_element_by_id('username')
+    password = driver.find_element_by_id('password')
+    login = driver.find_element_by_tag_name('button')
+
+    username.send_keys('louis.tung@allianzgi.com')
+    password.send_keys('Ignites123')
+    login.click()
+
+    time.sleep(5)
+
+    driver.get('https://www.ignitesasia.com/category/170')
+
+    news = driver.find_element_by_id('main')
+
+    titles = news.find_elements_by_tag_name('h4')
+    links = [ele.find_element_by_tag_name('a').get_attribute('href') for ele in titles]
+    titles = [ele.text for ele in titles]
+
+
+    dates = news.find_elements_by_tag_name('p')
+    dates = [ele.text[:-11] for ele in dates]
+    dates = [datetime.datetime.strptime(ele, '%B %d, %Y').strftime('%Y-%m-%d') for ele in dates]
+
+    summary = []
+    for x in range(1,11):
+        summary.append(news.find_element_by_xpath('//*[@id="main"]/div/div[{}]/div/div'.format(x)).text)
+
+    output = pd.DataFrame([dates, titles, summary, links]).T
+    output.columns = ['Date', 'News', 'Summary', 'Link']
+    output['News Type'] = 'IgniteAsia'
+    
+    return output
+    
 def send_email(file_list, file_name_list):
-    fromaddr = "" insert your receiver email here
-    toaddr = "" # insert your sender email here
+    fromaddr = "allianznewsproject@gmail.com"
+    toaddr = "1155093246@link.cuhk.edu.hk"
     
     msg = MIMEMultipart() 
     msg['From'] = fromaddr 
@@ -317,12 +361,14 @@ def send_email(file_list, file_name_list):
     
     s = smtplib.SMTP('smtp.gmail.com', 587) 
     s.starttls() 
-    s.login(fromaddr, "") # insert your sender email password
+    s.login(fromaddr, "heyheycantakea")
     
     text = msg.as_string() 
     s.sendmail(fromaddr, toaddr, text) 
     s.quit() 
     return
+
+
 
 if __name__== "__main__":
     handler(0,0)
