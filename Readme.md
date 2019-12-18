@@ -1,5 +1,6 @@
 # China Funds Data and News Scrapper
 This is a server produced by Fergus Kwan Tak Hei to automatically receive China funds data and news from various sources in the web. The server is written in python 3.7, Linux Ubuntu environment and deployed in AWS.
+- You can see a sample of the data. It is saved as data.xlsx
 
 ### AWS
 - The server is built in AWS lambda (serverless function).
