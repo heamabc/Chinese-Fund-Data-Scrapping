@@ -7,7 +7,7 @@ while :
         if [ $TIME == '15' ];
         then
             echo Time matched, current hour is $TIME, run program..., ;
-            python service.py;
+            python main.py;
             echo Sleep 1 hour;
             sleep 3600;
             
