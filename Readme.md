@@ -20,3 +20,4 @@ This is a server produced by Fergus Kwan Tak Hei to automatically receive China 
 -  - PBOC
 -  - SAFE
 -  - IgniteAsia
+-  - CBIRC
