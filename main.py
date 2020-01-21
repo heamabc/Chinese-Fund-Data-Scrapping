@@ -20,8 +20,7 @@ import warnings
 from io import StringIO
 import os
 import time
-from datetime import date
-from datetime import datetime
+from datetime import date, datetime
 
 # ending email
 import smtplib 
@@ -72,6 +71,8 @@ def handler(event, context):
     SAFE = SAFE_function()
     print('Ignites Asia...')
     IgnitesAsia = IgnitesAsia_function()
+    print('CBIRC...')
+    CBIRC = CBIRC_function()
     
     # PBOC sometimes has error and sometimes doesn't, here we try to take the data until there is no error. If error, it will automatically rerun the PBOC part.
     print('PBOC...')
@@ -88,6 +89,7 @@ def handler(event, context):
     news_output = pd.concat([IgnitesAsia, industry_news], ignore_index = True)
     news_output = pd.concat([news_output,SAFE], ignore_index=True)
     news_output = pd.concat([news_output, PBOC], ignore_index = True)
+    news_output = pd.concat([news_output, CBIRC], ignore_index=True)
     news_output = news_output[news_output['Date'] != ' ']
     news_output = news_output[['Date', 'News', 'Summary', 'News Type', 'Link']]
     
@@ -234,8 +236,8 @@ def SAFE_function():
     return output
     
 def IgnitesAsia_function():
-    my_username = '************'
-    my_password = '********'
+    my_username = 'louis.tung@allianzgi.com'
+    my_password = 'Ignites123'
     
     # Getting the webpage of ignitesasia
     url = 'https://www.ignitesasia.com/'
@@ -321,25 +323,57 @@ def PBOC_function():
         tmp_output['News Type'] = 'PBOC - ' + name
         output = pd.concat([output, tmp_output], ignore_index=True)
     
-    output.dropna()
+    output = output.dropna()
     return output
     
+def CBIRC_function():
+    # To take the reports and publications published by PBOC
+    # return news, link, date, news_type
+    
+    url = 'http://www.cbirc.gov.cn/cn/view/pages/ItemList.html?itemPId=923&itemId=927&itemUrl=ItemListRightList.html&itemName=%E6%B3%95%E5%BE%8B%E6%B3%95%E8%A7%84&itemsubPId=926'
+    driver = webdriver.PhantomJS(r"/home/ubuntu/environment/lib/phantomjs_2.1.1", service_log_path=os.path.devnull)
+    driver.get(url)
+    
+    soup = BeautifulSoup(driver.page_source,'html.parser', fromEncoding="gb18030")
+    
+    table = soup.find_all('a', attrs={'target': '_blank', 'class':'ng-binding', 'style':"width: 78%;"})
+    date = soup.find_all('span', class_='date ng-binding')
+    
+    # For some reason the data will duplicate. Here is to drop the duplicated items
+    for x in range(1,len(table)):
+        if table[0] == table[x]:
+            table = table[:x]
+            date = date[:x]
+            break
+    
+    
+    output = {}
+    for a in table:
+        output[a['title']] = 'http://www.cbirc.gov.cn/cn/view/pages/' + a['href']
+        
+    output = pd.DataFrame(output.items(), columns = ['News', 'Link'])
+    output = pd.concat([output, pd.DataFrame([ele.text for ele in date], columns=['Date'])], axis=1)
+    output['News Type'] = 'CBIRC'
+    
+    return output
+
+    
 def send_email(filename):
-    fromaddr = "*********t@gmail.com"
-    toaddr = "*******@gmail.com"
+    fromaddr = ""
+    toaddr = [""]
     
     msg = MIMEMultipart() 
     msg['From'] = fromaddr 
-    msg['To'] = toaddr 
+    msg['To'] = ",".join(toaddr)
     
-    msg['Subject'] = "Funds and News data from Echo Kwan CUHK"
-    body = """Dear Mr.,
+    msg['Subject'] = "Funds and News data from Fergus Kwan CUHK"
+    body = """Dear All,
 
-I am writing to send you the news data. Attached is the data required. Please contact me if you have any difficulties. Thank you.
+I am writing to send you the news data of the date {}. Attached is the data required. Please contact me if you have any difficulties. Thank you.
     
 Best regards,
 Kwan Tak Hei Fergus
-    """
+    """.format(str(date.today()))
     
     msg.attach(MIMEText(body, 'plain')) 
     
@@ -353,7 +387,7 @@ Kwan Tak Hei Fergus
     
     s = smtplib.SMTP('smtp.gmail.com', 587) 
     s.starttls() 
-    s.login(fromaddr, "********")
+    s.login(fromaddr, "")
     
     text = msg.as_string() 
     s.sendmail(fromaddr, toaddr, text) 
