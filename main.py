@@ -5,6 +5,11 @@ phone = "+852 61255752"
 email = "takhei611@gmail.com"
 '''
 
+# chmod +x ./job.sh
+# To run the program, run this line in the bash: ./job.sh
+
+
+#------------------------------------------------Package
 # web scrapping
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -32,10 +37,8 @@ from email import encoders
 # ignore warnings
 warnings.filterwarnings("ignore")
 
-# chmod +x ./job.sh
-# To run the program, run this line in the bash: ./job.sh
 
-# main function
+#------------------------------------------------Main function
 def handler(event, context):
     # Funds part
     
@@ -110,6 +113,7 @@ def handler(event, context):
     
     return 
     
+#------------------------------------------------NAV function
 def NAV_function():
     # To take the name, code, AUM (in millions), NAV, number of units, manager, inception date and link of the funds
     # return code, name, per_unit_NAV, number_of_unit, AUM, inception_date, manager
@@ -152,6 +156,7 @@ def NAV_function():
     
     return output
     
+#------------------------------------------------company function
 def company_function():
     # To match the company in which all the funds belong to
     # return code, company, fund name, link
@@ -179,6 +184,7 @@ def company_function():
     output['fund'] = output['fund'].str[:-8]
     return output
     
+#------------------------------------------------industry news function
 def industry_news_function():
     # To take industry news of public funds in China
     # return date, news, link, news type
@@ -206,6 +212,7 @@ def industry_news_function():
     output['News Type'] = 'Industry News'
     return output    
 
+#------------------------------------------------SAFE function
 def SAFE_function():
     # To take the reports and publications published by SAFE
     # return news, link, date, news_type
@@ -235,9 +242,10 @@ def SAFE_function():
     output['News Type'] = 'SAFE'
     return output
     
+#------------------------------------------------Ignites Asia function
 def IgnitesAsia_function():
-    my_username = 'louis.tung@allianzgi.com'
-    my_password = 'Ignites123'
+    my_username = ''
+    my_password = ''
     
     # Getting the webpage of ignitesasia
     url = 'https://www.ignitesasia.com/'
@@ -282,6 +290,7 @@ def IgnitesAsia_function():
     
     return output
 
+#------------------------------------------------PBOC function
 def PBOC_function():
     # To take the reports and publications published by PBOC
     # return news, link, date, news_type
@@ -326,6 +335,7 @@ def PBOC_function():
     output = output.dropna()
     return output
     
+#------------------------------------------------CBIRC function
 def CBIRC_function():
     # To take the reports and publications published by PBOC
     # return news, link, date, news_type
@@ -357,7 +367,7 @@ def CBIRC_function():
     
     return output
 
-    
+#------------------------------------------------send email function
 def send_email(filename):
     fromaddr = ""
     toaddr = [""]
