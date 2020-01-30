@@ -3,8 +3,8 @@ This is a server produced by Fergus Kwan Tak Hei to automatically receive China 
 - You can see a sample of the data. It is saved as data.xlsx
 
 ### AWS
-- The server is built in AWS lambda (serverless function).
-- It is written in the Cloud9 IDE
+- The server was built in AWS lambda (serverless function).
+- It was written in the Cloud9 IDE
 - It would not exceeds the usage of free tier.
 
 ### Requirements
