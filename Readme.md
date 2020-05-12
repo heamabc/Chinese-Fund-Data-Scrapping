@@ -5,6 +5,7 @@ This is a server produced by Fergus Kwan Tak Hei to automatically receive China 
 ### AWS
 - The server was built in AWS lambda (serverless function).
 - It was written in the Cloud9 IDE
+- It is scheduled to run every day.
 - It would not exceeds the usage of free tier.
 
 ### Requirements
